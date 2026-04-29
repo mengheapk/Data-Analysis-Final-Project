@@ -1,0 +1,865 @@
+\documentclass[12pt, a4paper]{article}
+
+% -----------------------------------------------
+% Packages
+% -----------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}          % Standard research-paper font (Latin Modern)
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{natbib}
+
+% -----------------------------------------------
+% Page style
+% -----------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Data Analysis 1 --- Spring 2026}
+\lhead{Coffee Quality Tier Prediction}
+\cfoot{\thepage}
+
+% -----------------------------------------------
+% Section formatting
+% -----------------------------------------------
+\titleformat{\section}{\large\bfseries}{}{0em}{\Roman{section}.\quad}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{\arabic{section}.\arabic{subsection}\quad}
+
+% -----------------------------------------------
+% Misc helpers
+% -----------------------------------------------
+\newcommand{\placeholder}[1]{%
+  \begin{center}
+    \fbox{\parbox{0.85\textwidth}{\centering\vspace{1.5cm}
+      \textit{[Placeholder: #1]}\vspace{1.5cm}}}
+  \end{center}
+}
+
+% -----------------------------------------------
+% Title block
+% -----------------------------------------------
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{1cm}
+
+  % University logo placeholder
+  \placeholder{University Logo --- American University of Phnom Penh}
+
+  \vspace{1.5cm}
+  {\LARGE\bfseries A Logistic Regression Model: Predicting\\[0.4em]
+   Coffee Quality Tier without Cupping\par}
+
+  \vspace{1.5cm}
+  {\large\textbf{Course:} Data Analysis 1\par}
+  \vspace{0.4cm}
+  {\large\textbf{Lecturer:} Dr.\ HAS Sothea\par}
+
+  \vspace{1.2cm}
+  {\large\textbf{Semester:} Spring 2026\par}
+
+  \vspace{1cm}
+  {\large\textbf{Team Members:}\par}
+  \vspace{0.4cm}
+  {\large Khan Mengheap --- 2024497\par}
+  \vspace{0.2cm}
+  {\large Taing Muyleang --- 2024355\par}
+
+  \vfill
+  {\large\textbf{Date:} 26 April 2026\par}
+\end{titlepage}
+
+% -----------------------------------------------
+\setcounter{section}{0}
+
+% -----------------------------------------------
+\section{Introduction}
+% -----------------------------------------------
+
+Coffee is one of the most widely consumed beverages and agricultural exports for many developing
+countries. A coffee's quality grade (Commercial, Premium, or Specialty) has significant economic
+consequences for farmers, exporters, importers, and roasters. Being able to predict coffee quality
+early in the supply chain can help stakeholders make better sourcing decisions, reduce waste, and
+reward high-quality producers with appropriate pricing.
+
+This project aims to develop and evaluate multiclass classification models that predict the quality
+tier of Arabica coffee samples using two types of features:
+\begin{enumerate}
+  \item Production-level attributes such as growing altitude, processing method, bean variety, and
+        physical defects.
+  \item Sensory evaluation scores assigned by certified Q-graders during cupping sessions.
+\end{enumerate}
+
+By comparing these two feature sets, we aim to determine how well coffee quality tier can be
+predicted from production-side features alone, without any cupping data, and to explore the
+implications for real-world applications such as pre-screening, pricing, and farmer self-assessment.
+
+The dataset used in the project is the Coffee Quality Institute (CQI) Arabica Quality Database
+\citep{LeDoux2018}, a public dataset that contains 1,311 professionally evaluated Arabica coffee
+samples from 34 countries, spanning harvest years from 2009 to 2018. Each record includes origin
+information, processing details, physical defect counts, altitude data, and 10 individual sensory
+scores (Aroma, Flavor, Aftertaste, Acidity, Body, Balance, Uniformity, Clean Cup, Sweetness, and
+Cupper Points), each scored on a 1--10 scale by certified Q-graders, which together sum to the Total
+Cup Points score (maximum 100). From Total Cup Points, we derived our target variable
+\texttt{quality\_tier} using the Specialty Coffee Association's standard grading threshold:
+Commercial (below 80), Premium (80--84), and Specialty (85 and above) \citep{SCA2005}.
+
+After preprocessing---which primarily includes parsing messy altitude and harvest year fields,
+handling missing values, and dropping a small number of rows with unparseable data---this dataset
+contains 1,251 Arabica coffee samples across three different quality tiers: Commercial (13.9\%),
+Premium (78.0\%), and Specialty (8.1\%).
+
+% -----------------------------------------------
+\section{Data Preprocessing}
+% -----------------------------------------------
+
+The raw CQI dataset contains 1,311 rows and 44 columns mixing sensory scores, production
+metadata, administrative identifiers, and pre-computed cleanup fields of uneven quality. This
+section documents every step of our cleaning process in the order it was performed in the notebook.
+
+\subsection{Initial Data Inspection}
+
+The dataset was loaded from the CQI GitHub repository using \texttt{pd.read\_csv()}, returning
+1,311 rows and 44 columns. All column names were converted to \texttt{snake\_case} format to
+ensure consistency throughout the analysis. A column-level summary was then computed using
+\texttt{df.dtypes}, \texttt{df.nunique()}, and \texttt{df.isnull().sum()} to capture data
+types, cardinality, and missingness for every column.
+
+Calling \texttt{df.duplicated().sum()} confirmed that there were no duplicate rows. However,
+many columns had missing values, which exhibited a clear pattern: the columns with the highest
+proportion of missing values were administrative identifiers, namely \texttt{lot\_number}
+(79.4\% missing), \texttt{farm\_name} (27.2\%), \texttt{mill} (23.7\%), \texttt{producer}
+(17.5\%), and \texttt{company} (15.9\%). This pattern is consistent with the CQI submission
+process, where producers may submit coffees without complete administrative paperwork.
+
+Among coffee-attribute columns, missingness appeared in \texttt{color} (20.4\%), the three
+altitude-related fields (each 17.3\% missing), the raw altitude column (17.0\%),
+\texttt{variety} (15.3\%), and \texttt{processing\_method} (11.6\%). Each of these required
+individual handling decisions in subsequent preprocessing steps.
+
+Most data types were appropriate (the ten sensory scores stored as \texttt{float64}, defect
+counts as \texttt{int64}), but two columns stored as \texttt{object} required custom parsing:
+\texttt{altitude} (mixed unit formats, e.g., ``1500 m'', ``4200 feet'', ``1000--1500m''), and
+\texttt{harvest\_year} (inconsistent formatting with year ranges, quarter notation, and
+multilingual month names). The pre-computed altitude cleanup columns
+(\texttt{altitude\_low\_meters}, \texttt{altitude\_high\_meters}, and
+\texttt{altitude\_mean\_meters}) appeared clean as \texttt{float64} but, as discovered later in
+Section~II.3, contained systematic parsing bugs.
+
+\subsection{Drop Irrelevant Columns}
+
+Based on the inspection in the previous section, 23 columns were identified as not useful for
+predicting coffee quality and were removed before further analysis. These fell into four categories:
+
+\textbf{Zero-variance column.} The \texttt{species} column contained only one unique value
+``Arabica'' for all rows. Since the dataset is restricted to Arabica coffee, this column is useless
+and was dropped.
+
+\textbf{Administrative identifiers.} Thirteen columns recorded paperwork metadata:
+\texttt{unnamed:\_0} (a stale row-index column), \texttt{lot\_number}, \texttt{ico\_number},
+\texttt{farm\_name}, \texttt{mill}, \texttt{producer}, \texttt{company}, \texttt{owner},
+\texttt{owner\_1}, \texttt{in\_country\_partner}, \texttt{certification\_body},
+\texttt{certification\_address}, and \texttt{certification\_contact}. Including these columns
+in the model would force it to memorize specific producers or certification bodies rather than
+learning generalizable patterns about coffee quality.
+
+\textbf{Process metadata.} Four columns recorded certification logistics or batch information rather
+than coffee properties: \texttt{grading\_date} and \texttt{expiration} describe when each sample
+was processed, while \texttt{bag\_weight} and \texttt{number\_of\_bags} describe the size of
+the submission batch.
+
+\textbf{Redundant or buggy columns.} Five columns either duplicated information or contained
+errors. The four altitude-related columns (\texttt{unit\_of\_measurement},
+\texttt{altitude\_low\_meters}, \texttt{altitude\_high\_meters}, and
+\texttt{altitude\_mean\_meters}) were the attempted cleanup of the raw altitude text but contained
+systematic parsing bugs (see Section~II.3). The \texttt{region} column had 343 unique country
+region names with most having only 1--2 samples; geographic information was instead captured
+through \texttt{country\_of\_origin}, later regrouped into broader continental regions in
+Section~II.8.
+
+After this drop, the working dataset contained 1,311 rows and 21 columns.
+
+\subsection{Initial Processing Decisions}
+
+After dropping irrelevant columns, missingness was re-examined across the remaining 21 columns.
+The missing pattern persisted: \texttt{color} (267 missing, 20.4\%), raw altitude (223 missing,
+17.0\%), \texttt{variety} (201 missing, 15.3\%), \texttt{processing\_method} (152 missing,
+11.6\%), and \texttt{harvest\_year} (47 missing, 3.6\%), with single missing values in
+\texttt{country\_of\_origin} and \texttt{quakers}.
+
+One row with \texttt{total\_cup\_points == 0} was dropped as a data-entry error (the practical
+minimum cupping score is around 60), leaving 1,310 rows.
+
+The classification target \texttt{quality\_tier} was constructed from \texttt{total\_cup\_points}
+using the SCA grading thresholds \citep{SCA2005}:
+\begin{itemize}
+  \item \textbf{Commercial:} total cup points below 80
+  \item \textbf{Premium:} total cup points between 80 and 84.99
+  \item \textbf{Specialty:} total cup points 85 or above
+\end{itemize}
+
+Applied to the data, the target distribution was 174 Commercial samples (13.3\%), 1,033 Premium
+samples (78.9\%), and 103 Specialty samples (7.9\%). This class imbalance shaped several decisions
+in model development (Section~IV).
+
+\subsection{Altitude Parser}
+
+The \texttt{altitude} column required the most preprocessing effort. The four altitude cleanup
+columns provided in the dataset contained systematic bugs that made them unreliable, so a
+customized parser was developed using the raw altitude text column.
+
+Inspection of \texttt{altitude\_mean\_meters} revealed impossible values: the maximum was
+190,164~m (for reference, Mount Everest's summit is 8,849~m). Two problem categories were
+identified:
+
+\begin{itemize}
+  \item \textbf{Decimal-stripping errors:} Row 1144 had a raw altitude of ``1901.64'' (Guatemala)
+        but was stored as 190,164.0; row 1040 had ``1100.00 mosl'' (Nicaragua) stored as 110,000.0.
+        In both cases, the parser stripped the decimal point and treated the digits as a single integer.
+  \item \textbf{Producer-side reporting errors:} Several Guatemalan rows reported ``3280'' with
+        \texttt{unit\_of\_measurement = `m'}, likely confusing feet with meters; multiple Myanmar
+        rows reported altitudes between 3,800 and 4,287~m, which are biologically impossible; one
+        Brazilian row reported ``11000 metros''.
+\end{itemize}
+
+A \texttt{parse\_altitude()} function was written with four steps:
+\begin{enumerate}
+  \item Extract all numeric values using the regular expression \verb|\d+\.?\d*| (capturing both
+        integers and decimals, preventing the decimal-stripping bug).
+  \item If two numbers are extracted (e.g., ``1000--1500m''), use the midpoint.
+  \item If the string contains \textit{feet}, \textit{ft}, or an apostrophe, convert from feet to
+        meters using the factor 0.3048.
+  \item If the resulting altitude falls outside the biologically plausible range of 100--3000~m, flag
+        the value as missing.
+\end{enumerate}
+
+After parsing, 948 rows had valid altitudes and 360 rows were flagged. Missing altitudes were
+imputed with the median altitude of valid samples from the same \texttt{country\_of\_origin}
+to preserve real geographic signal. Two rows whose \texttt{country\_of\_origin} was missing
+could not be imputed and were dropped, leaving 1,308 rows.
+
+The final \texttt{altitude\_imputed\_m} column has a mean of 1,301~m, median of 1,350~m, and
+standard deviation of 398~m, consistent with global Arabica production.
+
+\subsection{Harvest Year Parser}
+
+The \texttt{harvest\_year} column was stored as \texttt{object} because of inconsistent
+submission formats. The 46 unique values fell into five formatting patterns: plain years
+(e.g., ``2012''), year ranges (e.g., ``2013/2014''), two-digit year codes (e.g., ``08/09 crop''),
+quarter notation (e.g., ``1T/2011''), and date text in multiple languages (English and Spanish),
+including junk entries such as ``TEST'' and ``mmm''.
+
+A \texttt{parse\_harvest\_year()} function was written using two regex-based strategies:
+\begin{enumerate}
+  \item Find any 4-digit year in the range 2000--2029 using \verb|\b(20[0-2]\d)\b|. If multiple
+        years are found, take the later year.
+  \item Fallback for two-digit codes: search for 2-digit codes following a slash using
+        \verb|/(\d{2})\b| (e.g., ``4T/10'' $\to$ 2010).
+  \item Strings with no extractable year information return \texttt{NaN}.
+\end{enumerate}
+
+The parser successfully extracted years for 1,251 of 1,308 rows. The 57 unparseable rows were
+dropped. The cleaned \texttt{harvest\_year\_clean} column spans 2009 to 2018 with a median of
+2014 and standard deviation of 1.85 years.
+
+\subsection{Variety Grouping}
+
+The \texttt{variety} column contained 29 unique values plus 156 missing entries (12.5\%
+missingness). To reduce cardinality while preserving meaningful information, varieties were grouped
+into 10 botanical families using the Arabica variety taxonomy maintained by World Coffee Research
+and the Specialty Coffee Association:
+
+\begin{itemize}
+  \item \textbf{Bourbon:} Bourbon and Yellow Bourbon.
+  \item \textbf{Typica:} Typica, Mundo Novo, Blue Mountain, and Java.
+  \item \textbf{SL\_Kenyan:} SL14, SL28, and SL34.
+  \item \textbf{Specialty:} Geisha, Pacamara, Pacas, Marigojipe, Peaberry, and Moka Peaberry
+        (rare specialty varieties, each with fewer than 15 samples).
+  \item \textbf{Caturra, Catuai, Catimor, Hawaiian Kona:} Kept as their own groups (each with at
+        least 20 samples and a distinct cultivation identity).
+  \item \textbf{Other:} Remaining low-sample varieties.
+  \item \textbf{Unknown:} The 156 missing entries, preserved as their own informative category.
+\end{itemize}
+
+The final distribution: Bourbon (259), Caturra (252), Typica (247), Unknown (156), Other (127),
+Catuai (72), Hawaiian Kona (44), SL\_Kenyan (38), Specialty (36), and Catimor (20).
+
+\subsection{Processing Method Cleanup}
+
+The \texttt{processing\_method} column had five unique values plus 100 missing entries
+(8.0\% missingness). Slash-notation labels were shortened (e.g., ``Washed / Wet'' $\to$
+``Washed''), and the 12-sample ``Pulped natural / honey'' category was merged into
+``Semi-washed'' due to process similarity. Missing entries were labelled ``Unknown''.
+
+Final distribution: Washed (808, 64.6\%), Natural (249, 19.9\%), Unknown (100, 8.0\%),
+Semi-washed (68, 5.4\%), and Other (26, 2.1\%).
+
+\subsection{Color Cleanup}
+
+The \texttt{color} column contained three unique values plus 220 missing entries (17.6\%
+missingness): Green (839, 67.1\%), Bluish-Green (112, 9.0\%), and Blue-Green (80, 6.4\%).
+The distinction between ``Bluish-Green'' and ``Blue-Green'' is linguistic rather than meaningful;
+both describe freshly-milled, high-moisture green coffee beans. They were merged into a single
+``Blue-Green'' category. Missing entries were labelled ``Unknown''.
+
+Final distribution: Green (839, 67.1\%), Unknown (220, 17.6\%), Blue-Green (192, 15.4\%).
+
+\subsection{Country to Region Grouping}
+
+The \texttt{country\_of\_origin} column contained 34 unique values with severe imbalance
+(the top five countries accounted for 62\% of samples, while 15 countries had fewer than 10
+samples each). Countries were grouped into five coffee-growing regions based on the International
+Coffee Organization's geographic classifications:
+
+\begin{itemize}
+  \item \textbf{Central America:} Mexico, Guatemala, Honduras, Costa Rica, Nicaragua,
+        El Salvador, Panama.
+  \item \textbf{South America:} Colombia, Brazil, Peru, Ecuador.
+  \item \textbf{East Africa:} Ethiopia, Tanzania, Uganda, Kenya, Malawi, Burundi, Rwanda,
+        Zambia, and C\^{o}te d'Ivoire.
+  \item \textbf{Southeast Asia:} Taiwan, Thailand, Indonesia, China, Myanmar, Vietnam,
+        Philippines, Laos, and Papua New Guinea.
+  \item \textbf{Caribbean/US:} Hawaii, Haiti, Puerto Rico, U.S. mainland, and Mauritius.
+\end{itemize}
+
+Final distribution: Central America (561, 44.8\%), South America (309, 24.7\%), Southeast Asia
+(161, 12.9\%), East Africa (147, 11.8\%), and Caribbean/US (73, 5.8\%).
+
+\subsection{Moisture Cleanup}
+
+The \texttt{moisture} column appeared complete but 229 rows (18.3\%) had a moisture reading of
+exactly 0, which is physically impossible for coffee beans (target range: 10--12\% for shelf
+stability). These were interpreted as hidden missingness.
+
+Regional medians for moisture (computed from non-zero values) had a spread of only 0.01
+percentage point across all five regions, so the simpler global median of 0.110 (11.0\%) was used
+to fill all 229 zero values.
+
+After imputation: minimum 0.01, median 0.11, maximum 0.28, standard deviation 0.018.
+
+\subsection{Quakers Missing Value}
+
+The \texttt{quakers} column contained a single missing value, imputed with the mode 0, since
+over 92\% of samples were already at zero. Its effect on summary statistics and model development
+is negligible at a sample size of 1,251.
+
+\subsection{Drop \texttt{color\_group}}
+
+Chi-square tests of independence between each cleaned categorical feature and
+\texttt{quality\_tier} (full results in Section~III.8) yielded the following ranking:
+\texttt{region\_group} (188.98) $>$ \texttt{variety\_group} (126.41) $>$
+\texttt{processing\_group} (47.78) $>$ \texttt{color\_group} (42.08).
+
+\texttt{color\_group} showed the weakest association, the highest missingness of any retained
+categorical feature (17.6\%), and only three categories (one being a missing-data placeholder).
+It was therefore dropped from the feature set. The working dataset after this step contained
+\textbf{1,251 rows and 20 columns}.
+
+% -----------------------------------------------
+\section{Exploratory Data Analysis}
+% -----------------------------------------------
+
+This section explores the cleaned dataset to understand how production features and sensory scores
+relate to the quality tier.
+
+\subsection{Target Distribution}
+
+The dataset is highly imbalanced:
+\begin{itemize}
+  \item Premium: 78.0\%
+  \item Commercial: 13.9\%
+  \item Specialty: 8.1\%
+\end{itemize}
+
+To address this imbalance, \texttt{class\_weight=`balanced'} was applied in one of the logistic
+regression models (Model~A -- balanced) to ensure better performance across all classes.
+
+\subsection{Numeric Production Features}
+
+\begin{table}[H]
+  \centering
+  \caption{Descriptive Statistics for Numeric Production Features}
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    \textbf{Feature} & \textbf{Count} & \textbf{Mean} & \textbf{SD}
+      & \textbf{Min} & \textbf{25\%} & \textbf{Median} & \textbf{Max} \\
+    \midrule
+    altitude\_imputed\_m   & 1,251 & 1,310.7 & 390.0 & 100.0  & 1,054.5 & 1,350.0 & 2,560.0 \\
+    harvest\_year\_clean   & 1,251 & 2,013.7 &   1.8 & 2,009  & 2,012   & 2,014   & 2,018   \\
+    moisture               & 1,251 &   0.111 & 0.018 &   0.01 &   0.11  &   0.11  &   0.28  \\
+    category\_one\_defects & 1,251 &    0.42 &  1.84 &   0    &   0     &   0     &  31     \\
+    category\_two\_defects & 1,251 &    3.66 &  5.41 &   0    &   0     &   2     &  55     \\
+    quakers                & 1,251 &    0.17 &  0.80 &   0    &   0     &   0     &  11     \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 1: Distribution of Numeric Production Features}
+  \caption{Distribution of Numeric Production Features}
+\end{figure}
+
+Key observations:
+\begin{itemize}
+  \item \textbf{Altitude} (\texttt{altitude\_imputed\_m}): The average altitude is 1,311~m, with
+        most samples between 1,054~m and 1,600~m.
+  \item \textbf{Harvest year} (\texttt{harvest\_year\_clean}): Samples range from 2009 to 2018,
+        with most collected between 2012 and 2015.
+  \item \textbf{Moisture:} The average moisture level is about 11.1\%, consistent with standard
+        industry levels.
+  \item \textbf{Category one defects:} Most coffees have no primary defects (median = 0); the
+        distribution is heavily right-skewed (maximum = 31).
+  \item \textbf{Category two defects:} Similarly right-skewed (maximum = 55, average 3.66).
+  \item \textbf{Quakers:} Most samples have zero quakers (median = 0, mean = 0.17).
+        Due to low variation and weak correlation with the target, \texttt{quakers} and
+        \texttt{harvest\_year\_clean} were excluded from the final model.
+\end{itemize}
+
+\subsection{Sensory Scores}
+
+\begin{table}[H]
+  \centering
+  \caption{Descriptive Statistics for Sensory Score Features}
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    \textbf{Feature} & \textbf{Count} & \textbf{Mean} & \textbf{SD}
+      & \textbf{Min} & \textbf{25\%} & \textbf{Median} & \textbf{Max} \\
+    \midrule
+    aroma         & 1,251 & 7.57 & 0.32 & 5.08 &  7.42 &  7.58 &  8.75 \\
+    flavor        & 1,251 & 7.52 & 0.34 & 6.08 &  7.33 &  7.50 &  8.83 \\
+    aftertaste    & 1,251 & 7.40 & 0.35 & 6.17 &  7.25 &  7.42 &  8.67 \\
+    acidity       & 1,251 & 7.54 & 0.32 & 5.25 &  7.33 &  7.50 &  8.75 \\
+    body          & 1,251 & 7.52 & 0.29 & 5.25 &  7.33 &  7.50 &  8.58 \\
+    balance       & 1,251 & 7.52 & 0.35 & 6.08 &  7.33 &  7.50 &  8.75 \\
+    uniformity    & 1,251 & 9.85 & 0.49 & 6.00 & 10.00 & 10.00 & 10.00 \\
+    clean\_cup    & 1,251 & 9.84 & 0.74 & 0.00 & 10.00 & 10.00 & 10.00 \\
+    sweetness     & 1,251 & 9.91 & 0.45 & 1.33 & 10.00 & 10.00 & 10.00 \\
+    cupper\_points& 1,251 & 7.50 & 0.43 & 5.17 &  7.25 &  7.50 &  8.67 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 2: Distribution of Numeric Sensory Features}
+  \caption{Distribution of Numeric Sensory Features}
+\end{figure}
+
+The ten sensory scores divide into two groups:
+\begin{itemize}
+  \item \textbf{Analytical scores} (aroma, flavor, aftertaste, acidity, body, balance,
+        cupper\_points): mostly fall between 7.0 and 8.5, with standard deviations from 0.29 to
+        0.43. These scores vary across samples, making them useful for distinguishing quality levels.
+  \item \textbf{Protocol scores} (uniformity, clean\_cup, sweetness): generally very high, often
+        close to 10, with mean values above 9.85 and standard deviations between 0.45 and 0.74.
+        Since most samples receive similarly high scores, these features are less useful for
+        distinguishing quality levels.
+\end{itemize}
+
+\subsection{Categorical Features}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 3: Distribution of Categorical Features}
+  \caption{Distribution of Categorical Features}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Variety} (\texttt{variety\_group}): Bourbon (259), Caturra (252), and Typica (247)
+        make up around 60\% of the dataset.
+  \item \textbf{Processing method} (\texttt{processing\_group}): Washed (808) dominates; Natural
+        (249), Unknown (100), Semi-washed (68), and Other (26).
+  \item \textbf{Region} (\texttt{region\_group}): Central America (561), South America (309),
+        Southeast Asia (161), East Africa (147), and Caribbean/US (73).
+\end{itemize}
+
+\subsection{Numeric Features vs.\ Quality Tier}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 4: Numeric Features vs. Quality Tier}
+  \caption{Numeric Production Features vs.\ Quality Tier (Boxplots)}
+\end{figure}
+
+The boxplots show that:
+\begin{itemize}
+  \item \textbf{Altitude:} Altitude increases as coffee quality improves; Specialty is grown at
+        higher altitudes, consistent with the view that altitude slows bean growth and improves
+        flavor development \citep{Wintgens2009}.
+  \item \textbf{Category one defects:} Commercial coffee shows a wider distribution; Premium and
+        Specialty coffees have very low and similar defect levels.
+  \item \textbf{Category two defects:} Commercial coffee shows higher defect levels; the difference
+        between groups is clearer than for category one defects.
+  \item \textbf{Moisture, harvest year, and quakers:} All quality groups show very similar
+        distributions with no clear differences, confirming these features do not help in predicting
+        quality.
+\end{itemize}
+
+\subsection{Categorical Features vs.\ Quality Tier}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 5: Categorical Features vs. Quality Tier}
+  \caption{Categorical Features vs.\ Quality Tier (Grouped Bar Plots)}
+\end{figure}
+
+The grouped bar plots show:
+\begin{itemize}
+  \item \textbf{Variety:} SL\_Kenyan has the highest proportion of Specialty coffee; Typica has
+        the lowest Specialty rate and the highest Commercial share.
+  \item \textbf{Processing method:} Natural-processed coffees tend to produce more Specialty
+        coffee, possibly because natural processing enhances flavor complexity. Semi-washed coffees
+        are mostly Premium.
+  \item \textbf{Region:} East Africa has the highest proportion of Specialty coffee. Caribbean/US
+        also shows a relatively high Specialty rate. Southeast Asia has the lowest Specialty rate
+        and a higher share of Commercial coffee.
+\end{itemize}
+
+\subsection{Correlation Heatmap}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 6: Correlation Heatmap -- Pearson}
+  \caption{Correlation Heatmap -- Pearson}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 7: Correlation Heatmap -- Spearman}
+  \caption{Correlation Heatmap -- Spearman}
+\end{figure}
+
+Key findings from the Pearson correlation heatmap:
+\begin{itemize}
+  \item \textbf{Sensory scores are strongly correlated:} The strongest pairwise correlations are
+        flavor--aftertaste ($r = 0.86$), aftertaste--balance ($r = 0.77$), and aroma--flavor
+        ($r = 0.75$). To avoid multicollinearity, Model~B uses only \texttt{flavor} as a
+        representative feature.
+  \item \textbf{Flavor is the strongest predictor of \texttt{total\_cup\_points}:} Flavor
+        ($r = 0.83$), aftertaste ($r = 0.82$), and balance ($r = 0.78$) have the highest
+        correlations with the target. Protocol scores (uniformity, clean\_cup, sweetness) show
+        weaker relationships ($r = 0.44$--$0.61$) and were excluded from the model.
+  \item \textbf{Production features show weak linear relationships:} The strongest
+        production-related correlations are \texttt{category\_two\_defects} ($r = -0.29$) and
+        \texttt{altitude} ($r = 0.21$). Other production features have little to no linear
+        correlation with the target.
+\end{itemize}
+
+Spearman results are broadly consistent with Pearson. Notable differences: altitude rises from 0.21
+to 0.27 (suggesting mild non-linearity), while \texttt{category\_two\_defects} drops in magnitude
+from $-0.29$ to $-0.17$ (suggesting Pearson was inflated by extreme defect outliers). Harvest year
+and quakers show near-zero correlations under both methods, confirming they should be excluded.
+
+\subsection{Chi-Squared Tests}
+
+Chi-square tests were used to assess the association between each cleaned categorical feature and
+\texttt{quality\_tier}.
+
+\begin{table}[H]
+  \centering
+  \caption{Chi-Square Test Results for Categorical Features vs.\ Quality Tier}
+  \begin{tabular}{lrrl}
+    \toprule
+    \textbf{Feature} & $\boldsymbol{\chi^2}$ & \textbf{df} & \textbf{p-value} \\
+    \midrule
+    region\_group     & 188.98 & 8 & $1.34 \times 10^{-36}$ *** \\
+    variety\_group    & 126.41 & 18 & $2.57 \times 10^{-18}$ *** \\
+    processing\_group &  47.78 &  8 & $1.09 \times 10^{-7}$  *** \\
+    color\_group      &  42.08 &  4 & $1.60 \times 10^{-8}$  *** \\
+    \bottomrule
+    \multicolumn{4}{l}{\footnotesize *** $p < 0.001$}
+  \end{tabular}
+\end{table}
+
+All four features showed statistically significant associations at $p < 0.001$. The chi-square
+statistic was used as a relative ranking of association strength:
+\begin{itemize}
+  \item \texttt{region\_group} is the strongest predictor, consistent with the visual pattern that
+        East Africa shows the highest Specialty rate and Southeast Asia the lowest.
+  \item \texttt{variety\_group} also shows a strong association, matching the evidence that
+        SL\_Kenyan varieties dominate the Specialty tier.
+  \item \texttt{processing\_group} shows a weaker but significant association.
+  \item \texttt{color\_group} has the weakest association and was removed from the feature set
+        (see Section~II.11).
+\end{itemize}
+
+% -----------------------------------------------
+\section{Model Development}
+% -----------------------------------------------
+
+Based on the EDA findings, logistic regression was selected as the modelling algorithm. It is
+interpretable, appropriate for multi-class classification, and well-suited to the relatively small,
+mixed-type feature set. Four models were built to allow structured comparisons.
+
+\subsection{Data Splitting}
+
+The dataset of 1,251 rows was split into 80\% training (1,000 rows) and 20\% test (251 rows) sets
+using stratified sampling (\texttt{stratify = y}) to maintain class proportions, with
+\texttt{random\_state = 42} for reproducibility.
+
+\begin{table}[H]
+  \centering
+  \caption{Train/Test Split with Class Distribution}
+  \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Split} & \textbf{Total} & \textbf{Commercial} & \textbf{Premium} & \textbf{Specialty} \\
+    \midrule
+    Training (80\%) & 1,000 & 139 (13.9\%) & 780 (78.0\%) & 81 (8.1\%) \\
+    Test (20\%)     &   251 &  35 (13.9\%) & 196 (78.1\%) & 20 (8.0\%) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Model Selection \& Training}
+
+Four models were trained:
+
+\begin{itemize}
+  \item \textbf{Dummy Classifier:} Used as a baseline by always predicting ``Premium''. Achieved
+        78.1\% accuracy but a macro-F1 of 0.29, confirming it completely fails on Commercial and
+        Specialty classes.
+  \item \textbf{Model A -- Unbalanced:} Logistic regression on production features with default
+        settings, tending to favor the dominant Premium class.
+  \item \textbf{Model A -- Balanced:} Logistic regression on production features with
+        \texttt{class\_weight=`balanced'}, giving more weight to minority classes. This was
+        selected as the primary Model~A due to better minority-class performance.
+  \item \textbf{Model B -- Flavor Only:} Logistic regression trained on the single \texttt{flavor}
+        score (Pearson $r = 0.83$ with \texttt{total\_cup\_points}). Serves as a benchmark for
+        sensory-based prediction.
+\end{itemize}
+
+% -----------------------------------------------
+\section{Results and Evaluation}
+% -----------------------------------------------
+
+\subsection{Performance Metrics}
+
+All models were evaluated on Accuracy, Macro-F1, Precision, and Recall. Due to class imbalance,
+Macro-F1 is the primary metric, as it assigns equal weight to all classes and prevents the majority
+class (Premium) from dominating the evaluation.
+
+\begin{table}[H]
+  \centering
+  \caption{Model Performance Comparison}
+  \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Model} & \textbf{Accuracy} & \textbf{Macro F1} & \textbf{Precision} & \textbf{Recall} \\
+    \midrule
+    Dummy Classifier   & 0.781 & 0.292 & 0.260 & 0.333 \\
+    Model A -- Unbalanced & 0.785 & 0.409 & 0.615 & 0.397 \\
+    Model A -- Balanced   & 0.526 & 0.463 & 0.475 & 0.644 \\
+    Model B -- Flavor Only& 0.912 & 0.832 & 0.909 & 0.788 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Model Comparison}
+
+\begin{itemize}
+  \item \textbf{Dummy Classifier:} High accuracy (78.1\%) but very low Macro-F1 (0.292) confirms
+        that accuracy alone is misleading under class imbalance.
+  \item \textbf{Model A -- Unbalanced:} Slightly better than the dummy baseline (Macro-F1 = 0.409),
+        but still favors the dominant Premium class. This suggests that production features alone
+        provide limited predictive power when class imbalance is not addressed.
+  \item \textbf{Model A -- Balanced:} Accuracy decreases to 52.6\% while Macro-F1 improves to
+        0.463 and Recall rises to 0.644, indicating better detection of Commercial and Specialty
+        samples at the expense of overall accuracy.
+  \item \textbf{Model B -- Flavor Only:} Best overall performance: 91.2\% accuracy, Macro-F1 of
+        0.832, Precision 0.909, and Recall 0.788. A single sensory feature substantially
+        outperforms all production-feature models.
+\end{itemize}
+
+\subsection{Confusion Matrix Analysis}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 8: Confusion Matrices for All Four Models}
+  \caption{Confusion Matrices}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Dummy:} Predicts every sample as ``Premium''; completely fails on Commercial and
+        Specialty.
+  \item \textbf{Model A -- Unbalanced:} Correctly identifies most Premium samples but misclassifies
+        nearly all Specialty and Commercial samples.
+  \item \textbf{Model A -- Balanced:} Identifies more Specialty coffee but still struggles with
+        Commercial due to low precision.
+  \item \textbf{Model B:} Mostly correct predictions with only slight confusion between Premium and
+        Specialty.
+\end{itemize}
+
+\subsection{Feature Importance}
+
+\begin{figure}[H]
+  \centering
+  \placeholder{Figure 9: Feature Importance for Model A Balanced (Specialty Class)}
+  \caption{Feature Importance for Model~A Balanced}
+\end{figure}
+
+Coefficients for the Specialty class from the balanced logistic regression model:
+
+\textbf{Strongest positive predictors:}
+\begin{itemize}
+  \item \texttt{processing\_group\_Semi-washed} ($+0.74$): strongest positive predictor of
+        Specialty classification.
+  \item \texttt{altitude\_imputed\_m} ($+0.57$): higher altitude increases the probability of
+        Specialty classification.
+  \item \texttt{variety\_group\_Caturra} ($+0.46$) and \texttt{variety\_group\_Catimor}
+        ($+0.35$): both positively associated with Specialty relative to the Bourbon reference.
+\end{itemize}
+
+Notably, \texttt{region\_group\_East\_Africa} and \texttt{variety\_group\_SL\_Kenyan} do not
+show strong positive coefficients despite their visual dominance in the bivariate plots. This is due
+to multicollinearity: most SL\_Kenyan samples originate from East African countries, so the model
+splits the predictive signal between the two related dummy variables. Additionally, the Caribbean/US
+reference region has a high Specialty rate (driven by Hawaiian Kona), which reduces the apparent
+East Africa coefficient.
+
+\textbf{Strongest negative predictors:}
+\texttt{region\_group\_Central\_America} ($-1.70$) and
+\texttt{region\_group\_South\_America} ($-1.42$) indicate that coffees from these regions are
+much less likely to be classified as Specialty compared to the Caribbean/US reference.
+\texttt{processing\_group\_Other} ($-1.17$) and \texttt{variety\_group\_Typica} ($-0.80$)
+also showed strong negative effects. Defect counts reduce the likelihood of Specialty
+classification, consistent with industry expectations.
+
+% -----------------------------------------------
+\section{Conclusion \& Business Implications}
+% -----------------------------------------------
+
+This project shows that production-related information---origin, variety, processing method,
+altitude, and defect counts---can help predict coffee quality levels. The balanced logistic
+regression model (Model~A) performs substantially better than a simple baseline, proving that it
+is possible to estimate coffee quality from production-side features alone.
+
+However, the gap between the production-feature model and the single sensory-score reference is
+large. Model~A achieves a Macro-F1 of approximately 0.46 compared to approximately 0.83 for the
+flavor-score model (Model~B), demonstrating that cupping data provides much stronger predictive
+value than any combination of production features in this dataset.
+
+\textbf{Business Implications:}
+\begin{itemize}
+  \item \textbf{For buyers and importers:} Coffee from East Africa, especially when semi-washed
+        or naturally processed and with low defects, is often a strong indicator of high quality,
+        allowing buyers to focus on the most promising samples and reduce cupping time and costs
+        \citep{IburuCoffee2021, EbruCoffee2025}.
+  \item \textbf{For farmers and cooperatives:} Lowering defect levels has the greatest effect on
+        improving coffee grade. Better sorting and post-harvest processing tools can greatly increase
+        the chance of reaching higher quality categories \citep{SCA2005, WEF2020}.
+  \item \textbf{For quality graders and certifiers:} A simple screening model using basic origin
+        and production data can reduce the need for full cupping while maintaining reliable
+        classification results \citep{PDG2024}.
+\end{itemize}
+
+\textbf{Limitations:}
+\begin{itemize}
+  \item The dataset is small and has very few Commercial coffee samples, which may reduce model
+        accuracy.
+  \item Logistic regression assumes simple relationships; more advanced models might perform better.
+  \item Some values (e.g., altitude) were estimated using country-level medians, potentially
+        reducing accuracy.
+\end{itemize}
+
+\textbf{Future Work:}
+\begin{itemize}
+  \item Adding a small amount of sensory data could improve predictions considerably.
+  \item Creating a real-time probability scoring system for coffee quality to support business
+        decisions.
+\end{itemize}
+
+% -----------------------------------------------
+% References
+% -----------------------------------------------
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+
+\bibitem[LeDoux(2018)]{LeDoux2018}
+LeDoux, J. (2018). \textit{coffee-quality-database} [Data set]. GitHub.
+\url{https://github.com/jldbc/coffee-quality-database}
+
+\bibitem[SCA(2005)]{SCA2005}
+Specialty Coffee Association. (2005). \textit{SCAA cupping protocols}. Specialty Coffee
+Association of America.
+\url{https://atlanticspecialtycoffee.com/wp-content/uploads/SCAA-Cupping-Protocols-2005.pdf}
+
+\bibitem[Wintgens(2009)]{Wintgens2009}
+Wintgens, J.~N. (Ed.). (2009). \textit{Coffee: Growing, processing, sustainable production---A
+guidebook for growers, processors, traders and researchers} (2nd ed.). Wiley-VCH.
+
+\bibitem[Iburu Coffee(2021)]{IburuCoffee2021}
+Iburu Coffee. (2021, November 4). Coffee growing areas in Kenya: A comprehensive overview.
+\textit{Iburu Coffee Blog}.
+\url{https://iburucoffee.com/blogs/blog/coffee-growing-areas-in-kenya-a-comprehensive-overview}
+
+\bibitem[Ebru Coffee Co.(2025)]{EbruCoffee2025}
+Ebru Coffee Co. (2025). \textit{About us}. \url{https://ebrucoffeeco.com/pages/about-us}
+
+\bibitem[Perfect Daily Grind(2024)]{PDG2024}
+Perfect Daily Grind. (2024, July 23). Specialty coffee needs to find new ways to assess quality.
+\textit{Perfect Daily Grind}.
+\url{https://perfectdailygrind.com/2024/07/specialty-coffee-new-ways-to-assess-quality/}
+
+\bibitem[WEF(2020)]{WEF2020}
+World Economic Forum. (2020, August 3). How sales of certain types of coffee could transform
+economies.
+\url{https://www.weforum.org/stories/2020/08/quality-coffee-can-boost-local-economies-and-benefit-farmers/}
+
+\bibitem[Harris et al.(2020)]{Harris2020}
+Harris, C.~R., Millman, K.~J., van der Walt, S.~J., et al. (2020). Array programming with
+NumPy. \textit{Nature}, \textit{585}(7825), 357--362.
+\url{https://doi.org/10.1038/s41586-020-2649-2}
+
+\bibitem[Hunter(2007)]{Hunter2007}
+Hunter, J.~D. (2007). Matplotlib: A 2D graphics environment. \textit{Computing in Science \&
+Engineering}, \textit{9}(3), 90--95. \url{https://doi.org/10.1109/MCSE.2007.55}
+
+\bibitem[Pedregosa et al.(2011)]{Pedregosa2011}
+Pedregosa, F., Varoquaux, G., Gramfort, A., et al. (2011). Scikit-learn: Machine learning in
+Python. \textit{Journal of Machine Learning Research}, \textit{12}, 2825--2830.
+\url{https://jmlr.org/papers/v12/pedregosa11a.html}
+
+\bibitem[The pandas development team(2020)]{Pandas2020}
+The pandas development team. (2020). \textit{pandas-dev/pandas: Pandas} (v1.0.5) [Software].
+Zenodo. \url{https://doi.org/10.5281/zenodo.3509134}
+
+\bibitem[Virtanen et al.(2020)]{Virtanen2020}
+Virtanen, P., Gommers, R., Oliphant, T.~E., et al. (2020). SciPy 1.0: Fundamental algorithms
+for scientific computing in Python. \textit{Nature Methods}, \textit{17}(3), 261--272.
+\url{https://doi.org/10.1038/s41592-019-0686-2}
+
+\bibitem[Waskom(2021)]{Waskom2021}
+Waskom, M.~L. (2021). Seaborn: Statistical data visualization. \textit{Journal of Open Source
+Software}, \textit{6}(60), 3021. \url{https://doi.org/10.21105/joss.03021}
+
+\end{thebibliography}
+
+% -----------------------------------------------
+\section*{Appendix}
+% -----------------------------------------------
+\addcontentsline{toc}{section}{Appendix}
+
+\begin{itemize}
+  \item \textbf{Link to GitHub Repository:} \url{[Insert link]}
+  \item \textbf{Data Source:} \url{https://github.com/jldbc/coffee-quality-database}
+\end{itemize}
+
+\end{document}
