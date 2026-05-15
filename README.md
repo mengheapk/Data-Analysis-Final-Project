@@ -4,7 +4,7 @@ A multiclass logistic regression pipeline that classifies Arabica coffee samples
 
 Final project for **Data Analysis I (INF-604)** at the American University of Phnom Penh (AUPP), Spring 2026.
 
-**Team:** Khan Mengheap, Taing Muyleang
+**Team:** Khan Mengheap, Taing Muyleang\
 **Lecturer:** Dr. HAS Sothea
 
 ---
@@ -67,11 +67,13 @@ Four model variants were compared to isolate specific design questions:
 
 ## Repository Structure
 
-├── final_project.ipynb       # Main Jupyter notebook with all analysis
-├── final_project_report.pdf  # Full written report (Sections I–VIII)
-├── data/                     # Raw and processed datasets
+```
+.
+├── main.ipynb                # Main Jupyter notebook with all analysis
+├── report.pdf                # Full written report (Sections I–VIII)
 ├── figures/                  # All charts and visualizations
 └── README.md                 # This file
+```
 
 ## Tools
 
