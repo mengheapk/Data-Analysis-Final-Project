@@ -2,7 +2,7 @@
 
 A multiclass logistic regression pipeline that classifies Arabica coffee samples into Commercial, Premium, or Specialty quality tiers using production-side features alone — no sensory cupping data required. The project quantifies how much predictive value cupping provides over production data, and demonstrates that a single sensory feature (Flavor) nearly doubles the predictive performance of 21 production features combined.
 
-Final project for **Data Analysis 1 (INF-604)** at the American University of Phnom Penh (AUPP), Spring 2026.
+Final project for **Data Analysis I (INF-604)** at the American University of Phnom Penh (AUPP), Spring 2026.
 
 **Team:** Khan Mengheap, Taing Muyleang
 **Lecturer:** Dr. HAS Sothea
